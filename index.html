@@ -24,9 +24,7 @@
     .card{flex:1;background:rgba(255,255,255,0.02);border-radius:8px;padding:6px;text-align:center;cursor:pointer}
     .card.disabled{opacity:0.45}
     .center{display:flex;align-items:center;justify-content:center}
-    .overlay{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.4);}
-    .menu{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
-    .bigBtn{font-size:20px;padding:12px 20px;border-radius:12px}
+    .overlay{display:none;}
     .muted{color:var(--muted);font-size:13px}
     footer{margin-top:12px;font-size:12px;color:var(--muted)}
   </style>
@@ -45,16 +43,6 @@
     <div class="stage">
       <div style="flex:1;position:relative">
         <canvas id="game" width="640" height="420"></canvas>
-        <div id="menuOverlay" class="overlay" style="pointer-events:auto">
-          <div class="menu">
-            <div style="text-align:center">
-              <h2 style="margin:6px 0">Mini Royale</h2>
-              <p class="muted">Click Start to play. Drag cards onto battlefield to place troops.</p>
-            </div>
-            <div class="center"><button id="startBtn" class="bigBtn">Start Game</button></div>
-            <div class="center muted">Drag a card from sidebar onto battlefield to deploy.</div>
-          </div>
-        </div>
       </div>
 
       <div class="sidebar">
@@ -79,8 +67,7 @@
           </div>
         </div>
 
-        <div class="panel center" id="statusPanel">Status: <span id="statusText">Menu</span></div>
-
+        <div class="panel center" id="statusPanel">Status: <span id="statusText">Playing</span></div>
         <div class="panel muted">Drag a card and drop it on the battlefield to deploy troops to that lane.</div>
       </div>
     </div>
@@ -91,8 +78,6 @@
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const startBtn = document.getElementById('startBtn');
-const menuOverlay = document.getElementById('menuOverlay');
 const elixirText = document.getElementById('elixirText');
 const elixirFill = document.getElementById('elixirFill');
 const statusText = document.getElementById('statusText');
@@ -114,22 +99,15 @@ class Entity{
 }
 
 class Game{
-  constructor(){
-    this.w=canvas.width; this.h=canvas.height;
-    this.lanes={left:this.h*0.28,right:this.h*0.72};
-    this.reset();
-  }
+  constructor(){this.w=canvas.width; this.h=canvas.height; this.lanes={left:this.h*0.28,right:this.h*0.72}; this.reset();}
   reset(){
-    this.time=0;this.state='menu';
+    this.time=0;this.state='playing';
     this.elixir=5;this.elixirMax=10;this.elixirRegen=1.5;this._regenTimer=0;
     this.entities=[];
     this.towers={playerLeft:{x:80,y:this.lanes.left,hp:100,max:100},playerKing:{x:80,y:this.h/2,hp:200,max:200},playerRight:{x:80,y:this.lanes.right,hp:100,max:100},enemyLeft:{x:this.w-80,y:this.lanes.left,hp:100,max:100},enemyKing:{x:this.w-80,y:this.h/2,hp:200,max:200},enemyRight:{x:this.w-80,y:this.lanes.right,hp:100,max:100}};
     this.spawnCooldowns={card1:0,card2:0,card3:0};
-    this.playerLaneChoice='left';
-    this.aiTimer=0;this.status='Ready';
+    this.aiTimer=0; this.status='Playing';
   }
-  start(){this.state='playing';this.status='Playing';}
-
   spawnTroop(cardIndex,lane,owner='player',x=null,y=null){
     const costs=[4,3,6];
     const defs=[{hp:120,atk:18,speed:1.6,r:12,type:'knight'},{hp:60,atk:12,speed:1.2,r:9,range:120,type:'archer'},{hp:200,atk:28,speed:0.9,r:16,type:'giant'}];
@@ -143,37 +121,13 @@ class Game{
     if(owner==='player'){this.elixir-=costs[cardIndex]; this.spawnCooldowns['card'+(cardIndex+1)]=0.5;}
     return true;
   }
-
   update(dt){
-    if(this.state!=='playing') return;
     this.time+=dt; this._regenTimer+=dt;
     if(this._regenTimer>=this.elixirRegen){this._regenTimer=0;this.elixir=clamp(this.elixir+1,0,this.elixirMax);}
     for(let k in this.spawnCooldowns) this.spawnCooldowns[k]=Math.max(0,this.spawnCooldowns[k]-dt);
-    this.aiTimer+=dt;
-    if(this.aiTimer>1.2){this.aiTimer=0; const lane=Math.random()<0.5?'left':'right'; const closest=this.towers['player'+(lane==='left'?'Left':'Right')]; this.spawnTroop(Math.random()<0.6?0:1,lane,'enemy',this.w-120,closest.y);}
-    for(let e of this.entities){
-      if(!e.alive) continue;
-      let enemy=null; let dist=1e9;
-      for(let o of this.entities){if(o.alive && o.owner!==e.owner){const d=Math.hypot(o.x-e.x,o.y-e.y);if(d<dist){enemy=o;dist=d;}}}
-      if(enemy && dist<=Math.max(e.range,e.r+enemy.r+2)){if(!e._atkTimer)e._atkTimer=0;e._atkTimer-=dt;if(e._atkTimer<=0){enemy.takeDamage(e.atk);e._atkTimer=0.7;}}
-      else{const targetX=e.owner==='player'?this.w-150:150;const dir=Math.sign(targetX-e.x);e.x+=dir*e.speed;}
-      const towerKeys=e.owner==='player'?['enemyLeft','enemyKing','enemyRight']:['playerLeft','playerKing','playerRight'];
-      for(let tk of towerKeys){const t=this.towers[tk];const d=Math.hypot(e.x-t.x,e.y-t.y);if(d<=e.r+22){if(!e._atkTowerTimer)e._atkTowerTimer=0;e._atkTowerTimer-=dt;if(e._atkTowerTimer<=0){t.hp-=e.atk;e._atkTowerTimer=0.8;if(t.hp<0)t.hp=0;}}}
-    }
-    for(let i=this.entities.length-1;i>=0;i--){if(!this.entities[i].alive)this.entities.splice(i,1);}
-    if(this.towers.enemyKing.hp<=0){this.state='win';this.status='You Win!';}
-    if(this.towers.playerKing.hp<=0){this.state='lose';this.status='You Lose';}
-  }
-
-  draw(){
-    ctx.clearRect(0,0,this.w,this.h);
-    ctx.fillStyle='#0b2b3a'; ctx.fillRect(0,this.h*0.45,this.w,this.h*0.1);
-    ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,this.lanes.left); ctx.lineTo(this.w,this.lanes.left); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,this.lanes.right); ctx.lineTo(this.w,this.lanes.right); ctx.stroke();
-    for(let k in this.towers){const t=this.towers[k]; const isEnemy=k.startsWith('enemy'); ctx.fillStyle=isEnemy?'#5a2b2b':'#234a2b'; ctx.fillRect(t.x-22,t.y-28,44,44); ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(t.x-28,t.y-36,56,6); ctx.fillStyle=isEnemy?'#ffb86b':'#8be78b'; ctx.fillRect(t.x-26,t.y-35,clamp(t.hp/t.max,0,1)*52,4); ctx.fillStyle='rgba(255,255,255,0.7)'; ctx.font='11px Arial'; ctx.textAlign='center'; ctx.fillText(k,t.x,t.y+38);}
-    for(let e of this.entities){ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fillStyle=e.owner==='player'?'#44b3ff':'#ff7b7b';ctx.fill();ctx.fillStyle='rgba(0,0,0,0.2)';ctx.fillRect(e.x-2,e.y-3,4,3);ctx.fillStyle='#39d0ff';ctx.fillRect(e.x-e.r+1,e.y-e.r-7,(e.hp/e.maxHp)*(e.r*2-2),3);}
-    ctx.fillStyle='rgba(255,255,255,0.06)'; ctx.fillRect(0,0,this.w,36); ctx.fillStyle='white'; ctx.font='14px Arial'; ctx.textAlign='left'; ctx.fillText('Mini Royale',10,22); ctx.textAlign='right'; ctx.fillText(this.status,this.w-10,22);
-  }
-}
+    this.aiTimer+=dt; if(this.aiTimer>1.2){this.aiTimer=0; const lane=Math.random()<0.5?'left':'right'; const closest=this.towers['player'+(lane==='left'?'Left':'Right')]; this.spawnTroop(Math.random()<0.6?0:1,lane,'enemy',this.w-120,closest.y);}
+    for(let e of this.entities){if(!e.alive) continue; let enemy=null; let dist=1e9; for(let o of this.entities){if(o.alive && o.owner!==e.owner){const d=Math.hypot(o.x-e.x,o.y-e.y);if(d<dist){enemy=o;dist=d;}}} if(enemy && dist<=Math.max(e.range,e.r+enemy.r+2)){if(!e._atkTimer)e._atkTimer=0;e._atkTimer-=dt;if(e._atkTimer<=0){enemy.takeDamage(e.atk);e._atkTimer=0.7;}} else{const targetX=e.owner==='player'?this.w-150:150; const dir=Math.sign(targetX-e.x); e.x+=dir*e.speed;} const towerKeys=e.owner==='player'?['enemyLeft','enemyKing','enemyRight']:['playerLeft','playerKing','playerRight']; for(let tk of towerKeys){const t=this.towers[tk]; const d=Math.hypot(e.x-t.x,e.y-t.y); if(d<=e.r+22){if(!e._atkTowerTimer)e._atkTowerTimer=0;e._atkTowerTimer-=dt;if(e._atkTowerTimer<=0){t.hp-=e.atk;e._atkTowerTimer=0.8;if(t.hp<0)t.hp=0;}}} } for(let i=this.entities.length-1;i>=0;i--){if(!this.entities[i].alive)this.entities.splice(i,1);} if(this.towers.enemyKing.hp<=0){this.state='win';this.status='You Win!';} if(this.towers.playerKing.hp<=0){this.state='lose';this.status='You Lose';} }
+  draw(){ctx.clearRect(0,0,this.w,this.h); ctx.fillStyle='#0b2b3a'; ctx.fillRect(0,this.h*0.45,this.w,this.h*0.1); ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,this.lanes.left); ctx.lineTo(this.w,this.lanes.left); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,this.lanes.right); ctx.lineTo(this.w,this.lanes.right); ctx.stroke(); for(let k in this.towers){const t=this.towers[k]; const isEnemy=k.startsWith('enemy'); ctx.fillStyle=isEnemy?'#5a2b2b':'#234a2b'; ctx.fillRect(t.x-22,t.y-28,44,44); ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(t.x-28,t.y-36,56,6); ctx.fillStyle=isEnemy?'#ffb86b':'#8be78b'; ctx.fillRect(t.x-26,t.y-35,clamp(t.hp/t.max,0,1)*52,4); ctx.fillStyle='rgba(255,255,255,0.7)'; ctx.font='11px Arial'; ctx.textAlign='center'; ctx.fillText(k,t.x,t.y+38);} for(let e of this.entities){ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fillStyle=e.owner==='player'?'#44b3ff':'#ff7b7b';ctx.fill();ctx.fillStyle='rgba(0,0,0,0.2)';ctx.fillRect(e.x-2,e.y-3,4,3);ctx.fillStyle='#39d0ff';ctx.fillRect(e.x-e.r+1,e.y-e.r-7,(e.hp/e.maxHp)*(e.r*2-2),3);} ctx.fillStyle='rgba(255,255,255,0.06)'; ctx.fillRect(0,0,this.w,36); ctx.fillStyle='white'; ctx.font='14px Arial'; ctx.textAlign='left'; ctx.fillText('Mini Royale',10,22); ctx.textAlign='right'; ctx.fillText(this.status,this.w-10,22); }
 
 function initGame(){game=new Game(); updateUI();} initGame();
 let last=performance.now();
@@ -182,9 +136,7 @@ function updateUI(){elixirText.textContent=Math.floor(game.elixir)+' / '+game.el
 
 let draggingCard=null; let dragIdx=-1; cardEls.forEach((el,i)=>{el.addEventListener('mousedown',(e)=>{if(game.state==='playing'){draggingCard=el; dragIdx=i;}});});
 document.addEventListener('mouseup',(e)=>{if(draggingCard){const rect=canvas.getBoundingClientRect();const x=e.clientX-rect.left;const y=e.clientY-rect.top; const lane=y<canvas.height/2?'left':'right'; game.spawnTroop(dragIdx,lane,'player',x,y); draggingCard=null; dragIdx=-1;}});
-
-startBtn.addEventListener('click',()=>{menuOverlay.style.display='none'; game.reset(); game.start();});
-resetBtn.addEventListener('click',()=>{menuOverlay.style.display='flex'; game.reset();});
+resetBtn.addEventListener('click',()=>{game.reset();});
 shareBtn.addEventListener('click',()=>{alert('To get a public URL: Create GitHub repo, add this HTML as index.html, enable GitHub Pages in settings.');});
 </script>
 </body>
