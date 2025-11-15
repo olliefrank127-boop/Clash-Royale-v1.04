@@ -36,7 +36,7 @@
     <header>
       <h1>Mini Royale — Browser Remake</h1>
       <div class="controls">
-        <div class="muted">Two lanes · elixir · simple AI</div>
+        <div class="muted">Two lanes · elixir · drag & place</div>
         <button id="resetBtn" class="secondary">Restart</button>
         <button id="shareBtn">How to get URL</button>
       </div>
@@ -49,10 +49,10 @@
           <div class="menu" style="width:100%;height:100%">
             <div style="text-align:center">
               <h2 style="margin:6px 0">Mini Royale</h2>
-              <p class="muted">A tiny Clash Royale-like demo. Click Start to play.</p>
+              <p class="muted">Click Start to play. Drag cards onto battlefield to place troops.</p>
             </div>
             <div class="center"><button id="startBtn" class="bigBtn">Start Game</button></div>
-            <div class="center muted">Click cards to spawn troops (costs elixir). Destroy the enemy king tower to win.</div>
+            <div class="center muted">Drag a card from sidebar onto battlefield to deploy.</div>
           </div>
         </div>
       </div>
@@ -81,15 +81,14 @@
 
         <div class="panel center" id="statusPanel">Status: <span id="statusText">Menu</span></div>
 
-        <div class="panel muted">Controls: Click a card to deploy into chosen lane. Click left/right of battlefield to choose lane before clicking card.</div>
+        <div class="panel muted">Drag a card and drop it on the battlefield to deploy troops to that lane.</div>
       </div>
     </div>
 
-    <footer>Tip: deploy to GitHub Pages for a public URL — click "How to get URL" for instructions.</footer>
+    <footer>Tip: deploy to GitHub Pages for a public URL.</footer>
   </div>
 
 <script>
-// --- Mini Royale single-file game ---
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const startBtn = document.getElementById('startBtn');
@@ -103,189 +102,118 @@ const cardEls = [document.getElementById('card1'), document.getElementById('card
 
 let game = null;
 
-// Utilities
-function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
-
 class Entity{
   constructor(x,y,r,opts={}){
-    this.x=x;this.y=y;this.r=r;this.hp=opts.hp||10;this.maxHp=this.hp;this.owner=opts.owner||'player';this.atk=opts.atk||4;this.speed=opts.speed||1;this.range=opts.range||0;this.type=opts.type||'troop';this.target=null;this.alive=true;this.lane=opts.lane||'left';
+    this.x=x;this.y=y;this.r=r;this.hp=opts.hp||10;this.maxHp=this.hp;this.owner=opts.owner||'player';
+    this.atk=opts.atk||4;this.speed=opts.speed||1;this.range=opts.range||0;this.type=opts.type||'troop';
+    this.target=null;this.alive=true;this.lane=opts.lane||'left';this.unitType=opts.unitType||'';
   }
-  takeDamage(d){this.hp-=d; if(this.hp<=0){this.hp=0; this.alive=false;}}
+  takeDamage(d){this.hp-=d;if(this.hp<=0){this.hp=0;this.alive=false;}}
 }
 
 class Game{
   constructor(){
     this.w=canvas.width; this.h=canvas.height;
-    this.lanes = {left: this.h*0.28, right: this.h*0.72};
+    this.lanes = {left:this.h*0.28,right:this.h*0.72};
     this.reset();
   }
   reset(){
-    this.time=0; this.state='menu';
-    this.elixir=5; this.elixirMax=10; this.elixirRegen=1.5; this._regenTimer=0;
-    this.entities = [];
-    this.towers = {
-      playerLeft: {x:80,y:this.lanes.left,hp:100,max:100},
-      playerKing: {x:80,y:this.h/2,hp:200,max:200},
-      playerRight: {x:80,y:this.lanes.right,hp:100,max:100},
-      enemyLeft: {x:this.w-80,y:this.lanes.left,hp:100,max:100},
-      enemyKing: {x:this.w-80,y:this.h/2,hp:200,max:200},
-      enemyRight: {x:this.w-80,y:this.lanes.right,hp:100,max:100}
+    this.time=0;this.state='menu';
+    this.elixir=5;this.elixirMax=10;this.elixirRegen=1.5;this._regenTimer=0;
+    this.entities=[];
+    this.towers={
+      playerLeft:{x:80,y:this.lanes.left,hp:100,max:100},playerKing:{x:80,y:this.h/2,hp:200,max:200},playerRight:{x:80,y:this.lanes.right,hp:100,max:100},
+      enemyLeft:{x:this.w-80,y:this.lanes.left,hp:100,max:100},enemyKing:{x:this.w-80,y:this.h/2,hp:200,max:200},enemyRight:{x:this.w-80,y:this.lanes.right,hp:100,max:100}
     };
-    this.spawnCooldowns = {card1:0,card2:0,card3:0};
-    this.playerLaneChoice = 'left';
-    this.aiTimer=0; this.status='Ready';
+    this.spawnCooldowns={card1:0,card2:0,card3:0};
+    this.playerLaneChoice='left';
+    this.aiTimer=0;this.status='Ready';
   }
-  start(){this.state='playing'; this.status='Playing';}
-  spawnTroop(cardIndex, lane, owner='player'){
-    const costs=[4,3,6];
-    const defs = [
-      {hp:120,atk:18,speed:1.6,r:12,type:'knight'},
-      {hp:60,atk:12,speed:1.2,r:9,range:120,type:'archer'},
-      {hp:200,atk:28,speed:0.9,r:16,type:'giant'}
-    ];
-    if(owner==='player' && this.elixir < costs[cardIndex]) return false;
-    if(this.spawnCooldowns['card'+(cardIndex+1)]>0) return false;
-    const def = defs[cardIndex];
-    const x = owner==='player'?120:this.w-120;
-    const y = this.lanes[lane];
+  start(){this.state='playing';this.status='Playing';}
 
-    const ent = new Entity(x,y,def.r,{hp:def.hp,atk:def.atk,speed:def.speed,range:def.range||0,owner:owner});
-    ent.unitType = def.type;
-    ent.lane=lane;
+  spawnTroop(cardIndex,lane,owner='player',x=null,y=null){
+    const costs=[4,3,6];
+    const defs=[{hp:120,atk:18,speed:1.6,r:12,type:'knight'},{hp:60,atk:12,speed:1.2,r:9,range:120,type:'archer'},{hp:200,atk:28,speed:0.9,r:16,type:'giant'}];
+    if(owner==='player'&&this.elixir<costs[cardIndex]) return false;
+    if(this.spawnCooldowns['card'+(cardIndex+1)]>0) return false;
+    const def=defs[cardIndex];
+    const px = x!==null? x : (owner==='player'?120:this.w-120);
+    const py = y!==null? y : this.lanes[lane];
+    const ent = new Entity(px,py,def.r,{hp:def.hp,atk:def.atk,speed:def.speed,range:def.range||0,owner:owner});
+    ent.unitType=def.type; ent.lane=lane;
     this.entities.push(ent);
-    if(owner==='player'){
-      this.elixir -= costs[cardIndex];
-      this.spawnCooldowns['card'+(cardIndex+1)] = 0.5; // small cooldown
-    }
+    if(owner==='player'){this.elixir -= costs[cardIndex]; this.spawnCooldowns['card'+(cardIndex+1)]=0.5;}
     return true;
   }
+
   update(dt){
     if(this.state!=='playing') return;
-    this.time += dt;
-    // elixir regen
-    this._regenTimer += dt;
-    if(this._regenTimer >= this.elixirRegen){
-      this._regenTimer = 0; this.elixir = clamp(this.elixir+1,0,this.elixirMax);
-    }
-    // cooldowns
+    this.time+=dt; this._regenTimer+=dt;
+    if(this._regenTimer>=this.elixirRegen){this._regenTimer=0;this.elixir=clamp(this.elixir+1,0,this.elixirMax);}
     for(let k in this.spawnCooldowns) this.spawnCooldowns[k]=Math.max(0,this.spawnCooldowns[k]-dt);
-
-    // AI spawns
-    this.aiTimer += dt;
-    if(this.aiTimer>1.6){
-      this.aiTimer = 0; if(Math.random()<0.7) this.spawnTroop(Math.random()<0.5?1:0, Math.random()<0.5?'left':'right','enemy');
+    // AI: smarter placement toward closest tower
+    this.aiTimer+=dt;
+    if(this.aiTimer>1.2){this.aiTimer=0;
+      for(let i=0;i<1;i++){
+        const lane=Math.random()<0.5?'left':'right';
+        const closestTower=this.towers['player'+(lane==='left'?'Left':'Right')];
+        this.spawnTroop(Math.random()<0.6?0:1,lane,'enemy',this.w-120,closestTower.y);
+      }
     }
 
-    // entity logic
+    // entities logic
     for(let e of this.entities){
       if(!e.alive) continue;
-      // find nearest enemy troop in lane
-      let enemy = null; let enemyDist = 1e9;
-      for(let o of this.entities){ if(o.alive && o.owner!==e.owner && o.lane===e.lane){
-        const d = Math.hypot(o.x-e.x,o.y-e.y); if(d<enemyDist){enemy=o;enemyDist=d}
-      }}
-      // if enemy in range -> attack
-      if(enemy && enemyDist <= Math.max(e.range, e.r+enemy.r+2)){
-        // attack (basic rate)
-        if(!e._atkTimer) e._atkTimer=0;
-        e._atkTimer -= dt; if(e._atkTimer<=0){ enemy.takeDamage(e.atk); e._atkTimer = 0.7; }
+      // nearest enemy troop
+      let enemy=null; let dist=1e9;
+      for(let o of this.entities){if(o.alive && o.owner!==e.owner){const d=Math.hypot(o.x-e.x,o.y-e.y);if(d<dist){enemy=o;dist=d;}}}
+      if(enemy && dist<=Math.max(e.range,e.r+enemy.r+2)){
+        if(!e._atkTimer) e._atkTimer=0; e._atkTimer-=dt; if(e._atkTimer<=0){enemy.takeDamage(e.atk); e._atkTimer=0.7;}}
       } else {
-        // move toward enemy towers
-        const targetX = e.owner==='player' ? this.w-150 : 150;
-        const dir = Math.sign(targetX - e.x);
-        e.x += dir * e.speed;
+        const targetX=e.owner==='player'? this.w-150 : 150; const dir=Math.sign(targetX-e.x); e.x+=dir*e.speed;
       }
-      // if near enemy tower in lane, attack tower
-      const towerKey = e.owner==='player' ? (e.lane==='left'?'enemyLeft':'enemyRight') : (e.lane==='left'?'playerLeft':'playerRight');
-      const tower = this.towers[towerKey];
-      const distToTower = Math.hypot(e.x - tower.x, e.y - tower.y);
-      if(distToTower <= e.r + 18){ if(!e._atkTowerTimer) e._atkTowerTimer=0; e._atkTowerTimer -= dt; if(e._atkTowerTimer<=0){ tower.hp -= e.atk; e._atkTowerTimer=0.9; if(tower.hp<=0) tower.hp=0; }}
-
-      // check if touching king tower
-      const enemyKingKey = e.owner==='player' ? 'enemyKing':'playerKing';
-      const king = this.towers[enemyKingKey];
-      const dk = Math.hypot(e.x-king.x,e.y-king.y);
-      if(dk <= e.r + 22){ if(!e._atkKingTimer) e._atkKingTimer=0; e._atkKingTimer -= dt; if(e._atkKingTimer<=0){ king.hp -= e.atk; e._atkKingTimer=0.9; }}
-
+      // attack tower
+      const towerKeys=e.owner==='player'? ['enemyLeft','enemyKing','enemyRight'] : ['playerLeft','playerKing','playerRight'];
+      for(let tk of towerKeys){const t=this.towers[tk]; const d=Math.hypot(e.x-t.x,e.y-t.y); if(d<=e.r+22){if(!e._atkTowerTimer)e._atkTowerTimer=0; e._atkTowerTimer-=dt; if(e._atkTowerTimer<=0){t.hp-=e.atk;e._atkTowerTimer=0.8; if(t.hp<0)t.hp=0;}}}
     }
-
-    // remove dead entities
-    for(let i=this.entities.length-1;i>=0;i--){ if(!this.entities[i].alive) this.entities.splice(i,1); }
-
-    // check win/lose
-    if(this.towers.enemyKing.hp<=0){ this.state='win'; this.status='You Win!'; }
-    if(this.towers.playerKing.hp<=0){ this.state='lose'; this.status='You Lose'; }
+    for(let i=this.entities.length-1;i>=0;i--){if(!this.entities[i].alive)this.entities.splice(i,1);}
+    if(this.towers.enemyKing.hp<=0){this.state='win';this.status='You Win!';}
+    if(this.towers.playerKing.hp<=0){this.state='lose';this.status='You Lose';}
   }
+
   draw(){
-    // background
     ctx.clearRect(0,0,this.w,this.h);
-    // river / middle
-    ctx.fillStyle = '#0b2b3a'; ctx.fillRect(0,this.h*0.45,this.w,this.h*0.1);
-    // lanes lines
+    ctx.fillStyle='#0b2b3a'; ctx.fillRect(0,this.h*0.45,this.w,this.h*0.1);
     ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(0,this.lanes.left); ctx.lineTo(this.w,this.lanes.left); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,this.lanes.right); ctx.lineTo(this.w,this.lanes.right); ctx.stroke();
-
-    // towers
-    for(let k of Object.keys(this.towers)){
-      const t = this.towers[k];
-      const isEnemy = k.startsWith('enemy');
-      ctx.fillStyle = isEnemy? '#5a2b2b':'#234a2b';
-      ctx.fillRect(t.x-22,t.y-28,44,44);
-      // HP bar
-      ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(t.x-28,t.y-36,56,6);
-      ctx.fillStyle='linear-gradient(90deg,#ffcc33,#ffd967)';
-      const w = clamp(t.hp/t.max,0,1)*52; ctx.fillStyle = isEnemy? '#ffb86b':'#8be78b'; ctx.fillRect(t.x-26,t.y-35,w,4);
-      // label
-      ctx.fillStyle='rgba(255,255,255,0.7)'; ctx.font='11px Arial'; ctx.textAlign='center'; ctx.fillText(k, t.x, t.y+38);
-    }
-
-    // entities
-    for(let e of this.entities){
-      ctx.beginPath(); ctx.arc(e.x,e.y,e.r,0,Math.PI*2);
-      ctx.fillStyle = e.owner==='player' ? '#44b3ff' : '#ff7b7b'; ctx.fill();
-      // simple eye
-      ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.fillRect(e.x-2,e.y-3,4,3);
-      // HP bar
-      ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(e.x - e.r, e.y - e.r - 8, e.r*2, 5);
-      ctx.fillStyle='#39d0ff'; ctx.fillRect(e.x - e.r + 1, e.y - e.r - 7, (e.hp/e.maxHp)*(e.r*2 - 2), 3);
-    }
-
-    // HUD small
-    ctx.fillStyle='rgba(255,255,255,0.06)'; ctx.fillRect(0,0,this.w,36);
-    ctx.fillStyle='white'; ctx.font='14px Arial'; ctx.textAlign='left'; ctx.fillText('Mini Royale',10,22);
-    // state
-    ctx.textAlign='right'; ctx.fillText(this.status, this.w-10,22);
+    for(let k in this.towers){const t=this.towers[k]; const isEnemy=k.startsWith('enemy'); ctx.fillStyle=isEnemy?'#5a2b2b':'#234a2b'; ctx.fillRect(t.x-22,t.y-28,44,44); ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.fillRect(t.x-28,t.y-36,56,6); ctx.fillStyle=isEnemy?'#ffb86b':'#8be78b'; ctx.fillRect(t.x-26,t.y-35,clamp(t.hp/t.max,0,1)*52,4); ctx.fillStyle='rgba(255,255,255,0.7)'; ctx.font='11px Arial'; ctx.textAlign='center'; ctx.fillText(k,t.x,t.y+38);}
+    for(let e of this.entities){ctx.beginPath();ctx.arc(e.x,e.y,e.r,0,Math.PI*2);ctx.fillStyle=e.owner==='player'?'#44b3ff':'#ff7b7b';ctx.fill();ctx.fillStyle='rgba(0,0,0,0.2)';ctx.fillRect(e.x-2,e.y-3,4,3);ctx.fillStyle='#39d0ff';ctx.fillRect(e.x-e.r+1,e.y-e.r-7,(e.hp/e.maxHp)*(e.r*2-2),3);}
+    ctx.fillStyle='rgba(255,255,255,0.06)'; ctx.fillRect(0,0,this.w,36); ctx.fillStyle='white'; ctx.font='14px Arial'; ctx.textAlign='left'; ctx.fillText('Mini Royale',10,22); ctx.textAlign='right'; ctx.fillText(this.status,this.w-10,22);
   }
 }
 
-// init
-function initGame(){ game = new Game(); updateUI(); }
-initGame();
+function initGame(){game=new Game(); updateUI();} initGame();
 
 let last=performance.now();
-function loop(t){ const dt=(t-last)/1000; last=t; if(game){ game.update(dt); game.draw(); updateUI(); } requestAnimationFrame(loop); }
-requestAnimationFrame(loop);
+function loop(t){const dt=(t-last)/1000;last=t;if(game){game.update(dt);game.draw();updateUI();} requestAnimationFrame(loop);} requestAnimationFrame(loop);
+function updateUI(){elixirText.textContent=Math.floor(game.elixir)+' / '+game.elixirMax;elixirFill.style.width=Math.round((game.elixir/game.elixirMax)*100)+'%';statusText.textContent=game.status;const costs=[4,3,6]; cardEls.forEach((el,i)=>{if(game.elixir>=costs[i]&&game.spawnCooldowns['card'+(i+1)]<=0&&game.state==='playing')el.classList.remove('disabled');else el.classList.add('disabled');});}
 
-function updateUI(){ elixirText.textContent = Math.floor(game.elixir) + ' / ' + game.elixirMax; elixirFill.style.width = Math.round((game.elixir/game.elixirMax)*100) + '%'; statusText.textContent = game.status;
-  // card availability
-  const costs=[4,3,6]; cardEls.forEach((el,i)=>{ if(game.elixir>=costs[i] && game.spawnCooldowns['card'+(i+1)]<=0 && game.state==='playing') el.classList.remove('disabled'); else el.classList.add('disabled'); });
-}
-
-// interactions
-canvas.addEventListener('click', (e)=>{
-  const rect = canvas.getBoundingClientRect(); const x = e.clientX - rect.left; const lane = x < canvas.width/2 ? 'left' : 'right'; game.playerLaneChoice = lane;
+// drag & drop
+let draggingCard=null; let dragIdx=-1; cardEls.forEach((el,i)=>{
+  el.addEventListener('mousedown',(e)=>{if(game.state==='playing'){draggingCard=el; dragIdx=i;}});
+});
+document.addEventListener('mousemove',(e)=>{if(draggingCard){} });
+document.addEventListener('mouseup',(e)=>{
+  if(draggingCard){
+    const rect=canvas.getBoundingClientRect();
+    const x=e.clientX-rect.left; const y=e.clientY-rect.top;
+    const lane=y<canvas.height/2?'left':'right';
+    game.spawnTroop(dragIdx,lane,'player',x,y);
+    draggingCard=null; dragIdx=-1;
+  }
 });
 
-cardEls.forEach((el,idx)=>{
-  el.addEventListener('click', ()=>{
-    if(game.state!=='playing') return;
-    const ok = game.spawnTroop(idx, game.playerLaneChoice, 'player'); if(ok) { /* flash */ el.animate([{transform:'scale(1)'},{transform:'scale(0.96)'},{transform:'scale(1)'}],{duration:160}) }
-  });
-});
+startBtn.addEventListener('click',()=>{menuOverlay.style.display='none';game.start();});
+resetBtn.addEventListener('click',()=>{menuOverlay.style.display='flex';game.reset();});
+shareBtn.addEventListener('click',()=>{alert('To get a public URL: Create GitHub repo, add this HTML as index.html, enable GitHub Pages in settings.');});
 
-startBtn.addEventListener('click', ()=>{ menuOverlay.style.display='none'; game.start(); });
-resetBtn.addEventListener('click', ()=>{ menuOverlay.style.display='flex'; game.reset(); });
-shareBtn.addEventListener('click', ()=>{ alert('To get a public URL: 1) Create a GitHub repo, add this HTML as index.html, commit. 2) In repo settings enable GitHub Pages source: main branch / root. 3) After a minute your site will be at https://<your-username>.github.io/<repo-name>/'); });
-
-</script>
-</body>
-</html>
+function clamp(v,a,b){return Math.max(a,Math
